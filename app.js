@@ -16,6 +16,7 @@
   let isPlaying = false;
   let isPaused = false;
   let currentUtterance = null;
+  let currentAudioEl = null;
   let availableVoices = [];
   let baseFontSize = 1.15;
 
@@ -398,16 +399,26 @@
   // Voice & Speech Initialization
   // --------------------------------------------------------------------------
   function initVoices() {
-    if (!('speechSynthesis' in window)) return;
-
     const loadVoices = () => {
-      availableVoices = window.speechSynthesis.getVoices();
-      selectVoice.innerHTML = '<option value="">Default System Voice</option>';
+      availableVoices = ('speechSynthesis' in window) ? window.speechSynthesis.getVoices() : [];
+      selectVoice.innerHTML = '';
+
+      // Option 1: Ultra High Definition Natural Voice (Google HD Online Streaming)
+      const hdOption = document.createElement('option');
+      hdOption.value = 'hd-natural-google';
+      hdOption.textContent = '🌟 Natural Studio Voice (Google HD Online)';
+      selectVoice.appendChild(hdOption);
+
+      // Option 2: Default System Voice
+      const defaultOption = document.createElement('option');
+      defaultOption.value = '';
+      defaultOption.textContent = '📱 Default System Voice (Offline Device)';
+      selectVoice.appendChild(defaultOption);
 
       // Sort voices prioritizing Natural / Google / Enhanced voices
       const sorted = [...availableVoices].sort((a, b) => {
-        const aIsNatural = /google|natural|premium|neural|enhanced/i.test(a.name);
-        const bIsNatural = /google|natural|premium|neural|enhanced/i.test(b.name);
+        const aIsNatural = /google|natural|premium|neural|enhanced/i.test(a.name) || /google|natural/i.test(a.voiceURI);
+        const bIsNatural = /google|natural|premium|neural|enhanced/i.test(b.name) || /google|natural/i.test(b.voiceURI);
         if (aIsNatural && !bIsNatural) return -1;
         if (!aIsNatural && bIsNatural) return 1;
 
@@ -416,19 +427,23 @@
         return a.name.localeCompare(b.name);
       });
 
-      // Auto-select best natural voice if not already saved
-      if (!settings.voiceURI && sorted.length > 0) {
-        const bestVoice = sorted.find(v => v.lang.startsWith('en')) || sorted[0];
-        if (bestVoice) {
-          settings.voiceURI = bestVoice.voiceURI;
-          localStorage.setItem('ab_voiceURI', settings.voiceURI);
-        }
+      // Auto-select HD Natural Voice if no preference is saved yet
+      if (!settings.voiceURI) {
+        settings.voiceURI = 'hd-natural-google';
+        localStorage.setItem('ab_voiceURI', settings.voiceURI);
+      }
+
+      if (settings.voiceURI === 'hd-natural-google') {
+        hdOption.selected = true;
+      } else if (settings.voiceURI === '') {
+        defaultOption.selected = true;
       }
 
       sorted.forEach((voice) => {
         const option = document.createElement('option');
         option.value = voice.voiceURI;
-        const tag = /google|natural|premium|neural|enhanced/i.test(voice.name) ? ' ⭐ (High Quality)' : '';
+        const isHighQuality = /google|natural|premium|neural|enhanced/i.test(voice.name) || /google|natural/i.test(voice.voiceURI);
+        const tag = isHighQuality ? ' ⭐ (Device High Quality)' : '';
         option.textContent = `${voice.name} (${voice.lang})${tag}`;
         if (voice.voiceURI === settings.voiceURI) option.selected = true;
         selectVoice.appendChild(option);
@@ -436,7 +451,7 @@
     };
 
     loadVoices();
-    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+    if ('speechSynthesis' in window && window.speechSynthesis.onvoiceschanged !== undefined) {
       window.speechSynthesis.onvoiceschanged = loadVoices;
     }
   }
@@ -942,62 +957,127 @@
     });
   }
 
-  // Intelligent Pronunciation Normalizer for Math, Equations, Hyphens, and Symbols
+  // Intelligent Pronunciation Normalizer for Math, Equations, Hyphens, Ligatures, and Symbols
   function normalizePronunciation(text) {
     if (!text) return '';
     let s = text;
 
-    // 1. Dehyphenate broken words across line breaks (e.g. "divi- sion" -> "division")
-    s = s.replace(/(\b\w+)-\s+(\w+\b)/g, '$1$2');
+    // 0. Fix PDF Unicode Ligatures (e.g. "deﬁnite" -> "definite", "ﬂow" -> "flow")
+    s = s.replace(/\uFB00/g, 'ff')
+         .replace(/\uFB01/g, 'fi')
+         .replace(/\uFB02/g, 'fl')
+         .replace(/\uFB03/g, 'ffi')
+         .replace(/\uFB04/g, 'ffl')
+         .replace(/\uFB05/g, 'ft')
+         .replace(/\uFB06/g, 'st');
 
-    // 2. Expand common academic abbreviations
+    // Clean smart quotes and typographic dashes
+    s = s.replace(/[\u2018\u2019]/g, "'")
+         .replace(/[\u201C\u201D]/g, '"')
+         .replace(/[\u2013\u2014]/g, ', ')
+         .replace(/\u2026/g, '...')
+         .replace(/\u2022/g, ', ');
+
+    // 1. Dehyphenate broken words across line breaks (e.g. "divi- sion" -> "division")
+    s = s.replace(/(\b[a-zA-Z]+)-\s+([a-zA-Z]+\b)/g, '$1$2');
+
+    // 2. Expand common academic and textbook abbreviations
     s = s.replace(/\be\.g\.,?\s*/gi, 'for example, ');
     s = s.replace(/\bi\.e\.,?\s*/gi, 'that is, ');
     s = s.replace(/\betc\.?\b/gi, 'et cetera');
     s = s.replace(/\bFig\.\s*(\d+)/gi, 'Figure $1');
     s = s.replace(/\bCh\.\s*(\d+)/gi, 'Chapter $1');
     s = s.replace(/\bEq\.\s*(\d+)/gi, 'Equation $1');
+    s = s.replace(/\bSec\.\s*(\d+)/gi, 'Section $1');
+    s = s.replace(/\bThm\.\s*(\d+)/gi, 'Theorem $1');
+    s = s.replace(/\bDef\.\s*(\d+)/gi, 'Definition $1');
     s = s.replace(/\bvs\.?\b/gi, 'versus');
     s = s.replace(/\bDr\.\s+/gi, 'Doctor ');
     s = s.replace(/\bMr\.\s+/gi, 'Mister ');
     s = s.replace(/\bMrs\.\s+/gi, 'Missus ');
     s = s.replace(/\bMs\.\s+/gi, 'Mizz ');
+    s = s.replace(/\bProf\.\s+/gi, 'Professor ');
 
-    // 3. Mathematical variables - make standalone 'a' sound like 'ay' instead of 'uh'
-    s = s.replace(/\ba\s*=/g, 'ay equals');
+    // 3. Fix Roman numerals in list enumerations (i), (ii), (iii)... so TTS doesn't say "eye eye eye"
+    s = s.replace(/\((?:i|I)\)/g, '(1)');
+    s = s.replace(/\((?:ii|II)\)/g, '(2)');
+    s = s.replace(/\((?:iii|III)\)/g, '(3)');
+    s = s.replace(/\((?:iv|IV)\)/g, '(4)');
+    s = s.replace(/\((?:v|V)\)/g, '(5)');
+    s = s.replace(/\((?:vi|VI)\)/g, '(6)');
+    s = s.replace(/\((?:vii|VII)\)/g, '(7)');
+    s = s.replace(/\((?:viii|VIII)\)/g, '(8)');
+    s = s.replace(/\((?:ix|IX)\)/g, '(9)');
+    s = s.replace(/\((?:x|X)\)/g, '(10)');
+
+    // 4. Fractions
+    s = s.replace(/½/g, ' one half ');
+    s = s.replace(/¼/g, ' one fourth ');
+    s = s.replace(/¾/g, ' three fourths ');
+    s = s.replace(/⅓/g, ' one third ');
+    s = s.replace(/⅔/g, ' two thirds ');
+    s = s.replace(/(\b\d+)\/(\d+\b)/g, '$1 over $2');
+
+    // 5. Separate numbers directly glued to algebraic letters (e.g. "7p" -> "7 p", "2q" -> "2 q", "3x" -> "3 x")
+    s = s.replace(/\b(\d+)([a-zA-Z])\b/g, '$1 $2');
+    s = s.replace(/\b([a-zA-Z])(\d+)\b/g, '$1 $2');
+
+    // 6. Mathematical variables - make standalone 'a' sound like 'ay' instead of 'uh'
+    s = s.replace(/\ba\s*=/g, 'ay equals ');
     s = s.replace(/=\s*a\b/g, '= ay');
     s = s.replace(/\bfor a\b/gi, 'for ay');
     s = s.replace(/\bwhere a\b/gi, 'where ay');
     s = s.replace(/\blet a\b/gi, 'let ay');
     s = s.replace(/\bthat a\b/gi, 'that ay');
+    s = s.replace(/\bif a\b/gi, 'if ay');
     s = s.replace(/\ba\s*,\s*b\b/g, 'ay, b');
     s = s.replace(/\ba\s+and\s+b\b/gi, 'ay and b');
     s = s.replace(/\ba\s*\+\s*/g, 'ay plus ');
 
-    // 4. Comparison and equation operators
+    // 7. Comparison and inequality operators
     s = s.replace(/<=|≤/g, ' is less than or equal to ');
     s = s.replace(/>=|≥/g, ' is greater than or equal to ');
     s = s.replace(/!=|≠/g, ' is not equal to ');
-    s = s.replace(/≈/g, ' is approximately equal to ');
-    s = s.replace(/\b(\w+)\s*<\s*(\w+)\b/g, '$1 is less than $2');
-    s = s.replace(/\b(\w+)\s*>\s*(\w+)\b/g, '$1 is greater than $2');
+    s = s.replace(/≈|~=/g, ' is approximately equal to ');
+    s = s.replace(/\b([a-zA-Z0-9]+)\s*<\s*([a-zA-Z0-9]+)\b/g, '$1 is less than $2');
+    s = s.replace(/\b([a-zA-Z0-9]+)\s*>\s*([a-zA-Z0-9]+)\b/g, '$1 is greater than $2');
     s = s.replace(/=/g, ' equals ');
 
-    // 5. Arithmetic operators
+    // 8. Arithmetic operators & symbols
     s = s.replace(/\+/g, ' plus ');
     s = s.replace(/(\b\w+)\s*-\s*(\b\w+)/g, '$1 minus $2');
     s = s.replace(/×/g, ' times ');
     s = s.replace(/÷/g, ' divided by ');
+    s = s.replace(/±/g, ' plus or minus ');
+    s = s.replace(/%/g, ' percent');
+    s = s.replace(/°/g, ' degrees ');
+    s = s.replace(/√(\w+)/g, ' square root of $1 ');
 
-    // 6. Exponents & units
+    // 9. Greek letters and math symbols
+    s = s.replace(/π/g, ' pi ');
+    s = s.replace(/θ/g, ' theta ');
+    s = s.replace(/α/g, ' alpha ');
+    s = s.replace(/β/g, ' beta ');
+    s = s.replace(/γ/g, ' gamma ');
+    s = s.replace(/λ/g, ' lambda ');
+    s = s.replace(/μ/g, ' mu ');
+    s = s.replace(/σ/g, ' sigma ');
+    s = s.replace(/δ|Δ/g, ' delta ');
+    s = s.replace(/∞/g, ' infinity ');
+    s = s.replace(/∑/g, ' sum of ');
+    s = s.replace(/∫/g, ' integral of ');
+    s = s.replace(/∈/g, ' is in ');
+    s = s.replace(/∉/g, ' is not in ');
+
+    // 10. Exponents
     s = s.replace(/(\b\w+)²/g, '$1 squared');
     s = s.replace(/(\b\w+)³/g, '$1 cubed');
     s = s.replace(/\^2\b/g, ' squared');
     s = s.replace(/\^3\b/g, ' cubed');
-    s = s.replace(/%/g, ' percent');
-    s = s.replace(/°/g, ' degrees ');
-    s = s.replace(/±/g, ' plus or minus ');
-    s = s.replace(/√(\w+)/g, ' square root of $1 ');
+    s = s.replace(/\^(\d+)/g, ' to the power of $1');
+
+    // 11. Add pauses and spacing after glued sentences
+    s = s.replace(/([a-zA-Z0-9])\.([A-Z])/g, '$1. $2');
 
     // Clean whitespace
     s = s.replace(/\s+/g, ' ').trim();
@@ -1007,6 +1087,17 @@
   // --------------------------------------------------------------------------
   // Playback Engine & Highlighting
   // --------------------------------------------------------------------------
+  function stopAllSpeechAudio() {
+    if (currentAudioEl) {
+      currentAudioEl.pause();
+      currentAudioEl.currentTime = 0;
+      currentAudioEl = null;
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  }
+
   function playSentence(idx) {
     if (idx < 0 || idx >= sentences.length) {
       if (stopAtEndOfPage) {
@@ -1025,7 +1116,7 @@
       return;
     }
 
-    window.speechSynthesis.cancel();
+    stopAllSpeechAudio();
     currentSentenceIndex = idx;
     highlightSentence(idx);
     updateProgress(idx);
@@ -1034,10 +1125,54 @@
     const sentenceItem = sentences[idx];
     const originalText = typeof sentenceItem === 'object' ? sentenceItem.text : sentenceItem;
     const spokenText = normalizePronunciation(originalText);
+
+    isPlaying = true;
+    isPaused = false;
+    updatePlayPauseButton(true);
+
+    // MODE A: Natural Studio Voice (Google HD Online streaming)
+    if (settings.voiceURI === 'hd-natural-google') {
+      const audioUrl = `api/tts-stream?text=${encodeURIComponent(spokenText)}&lang=en`;
+      currentAudioEl = new Audio(audioUrl);
+      currentAudioEl.playbackRate = settings.rate;
+
+      // Animate word highlighting across the duration
+      currentAudioEl.ontimeupdate = () => {
+        if (currentAudioEl && currentAudioEl.duration > 0) {
+          const ratio = currentAudioEl.currentTime / currentAudioEl.duration;
+          const charInOriginal = Math.min(originalText.length - 1, Math.floor(ratio * originalText.length));
+          highlightActiveWord(idx, charInOriginal);
+        }
+      };
+
+      currentAudioEl.onended = () => {
+        if (isPlaying && !isPaused) {
+          playSentence(currentSentenceIndex + 1);
+        }
+      };
+
+      currentAudioEl.onerror = () => {
+        console.warn('HD Natural Voice streaming failed, falling back to local TTS engine...');
+        fallbackToLocalSpeech(spokenText, originalText, idx);
+      };
+
+      currentAudioEl.play().catch((err) => {
+        console.warn('Audio play prevented or offline, fallback to local TTS:', err);
+        fallbackToLocalSpeech(spokenText, originalText, idx);
+      });
+      return;
+    }
+
+    // MODE B: Device Speech Synthesis
+    fallbackToLocalSpeech(spokenText, originalText, idx);
+  }
+
+  function fallbackToLocalSpeech(spokenText, originalText, idx) {
+    if (!('speechSynthesis' in window)) return;
     currentUtterance = new SpeechSynthesisUtterance(spokenText);
 
     let activeVoice = null;
-    if (settings.voiceURI) {
+    if (settings.voiceURI && settings.voiceURI !== 'hd-natural-google') {
       activeVoice = availableVoices.find((v) => v.voiceURI === settings.voiceURI);
     }
     if (!activeVoice && availableVoices.length > 0) {
@@ -1076,10 +1211,6 @@
         console.warn('SpeechSynthesis error:', e);
       }
     };
-
-    isPlaying = true;
-    isPaused = false;
-    updatePlayPauseButton(true);
 
     window.speechSynthesis.speak(currentUtterance);
   }
@@ -1186,14 +1317,21 @@
       if (isPaused) {
         isPaused = false;
         updatePlayPauseButton(true);
-        if (currentSentenceIndex >= 0) {
+        if (currentAudioEl && currentAudioEl.src && !currentAudioEl.ended) {
+          currentAudioEl.play();
+        } else if (currentSentenceIndex >= 0) {
           playSentence(currentSentenceIndex);
         } else {
           playSentence(0);
         }
       } else {
         isPaused = true;
-        window.speechSynthesis.cancel();
+        if (currentAudioEl) {
+          currentAudioEl.pause();
+        }
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+        }
         updatePlayPauseButton(false);
       }
     } else {
@@ -1205,7 +1343,7 @@
   }
 
   function stopSpeaking() {
-    window.speechSynthesis.cancel();
+    stopAllSpeechAudio();
     isPlaying = false;
     isPaused = false;
     currentSentenceIndex = -1;
@@ -1306,7 +1444,8 @@
     labelSpeed.textContent = `${speed.toFixed(2)}x`;
     localStorage.setItem('ab_rate', speed);
     updateSpeedPresetButtons(speed);
-    if (isPlaying && !isPaused) playSentence(currentSentenceIndex);
+    if (currentAudioEl) currentAudioEl.playbackRate = speed;
+    if (isPlaying && !isPaused && !currentAudioEl) playSentence(currentSentenceIndex);
   });
 
   speedPresetButtons.forEach((btn) => {
@@ -1317,7 +1456,8 @@
       labelSpeed.textContent = `${speed.toFixed(2)}x`;
       localStorage.setItem('ab_rate', speed);
       updateSpeedPresetButtons(speed);
-      if (isPlaying && !isPaused) playSentence(currentSentenceIndex);
+      if (currentAudioEl) currentAudioEl.playbackRate = speed;
+      if (isPlaying && !isPaused && !currentAudioEl) playSentence(currentSentenceIndex);
     });
   });
 

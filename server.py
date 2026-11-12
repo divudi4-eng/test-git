@@ -59,6 +59,8 @@ def fetch_tts_audio_mp3(text, lang="en"):
             
     return bytes(combined_audio)
 
+AUDIO_CACHE = {}
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
@@ -72,6 +74,48 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return super().translate_path(path)
 
     def do_GET(self):
+        clean_path = self.path
+        if clean_path.startswith("/test_agent"):
+            clean_path = clean_path[len("/test_agent"):]
+
+        # Streaming Audio for Sentences
+        if clean_path.startswith("/api/tts-stream"):
+            parsed = urllib.parse.urlparse(self.path)
+            qs = urllib.parse.parse_qs(parsed.query)
+            text = qs.get("text", [""])[0]
+            lang = qs.get("lang", ["en"])[0]
+            if not text.strip():
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"error": "Empty text"}')
+                return
+
+            cache_key = f"{lang}:{text}"
+            mp3_data = AUDIO_CACHE.get(cache_key)
+            if not mp3_data:
+                mp3_data = fetch_tts_audio_mp3(text, lang)
+                if mp3_data:
+                    if len(AUDIO_CACHE) > 300:
+                        AUDIO_CACHE.clear()
+                    AUDIO_CACHE[cache_key] = mp3_data
+
+            if not mp3_data:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"error": "Audio synthesis failed"}')
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Content-Length", str(len(mp3_data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            self.wfile.write(mp3_data)
+            return
+
         # Redirect / to /test_agent/
         if self.path in ("", "/"):
             self.send_response(302)
