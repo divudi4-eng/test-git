@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <title>AudioBook Reader</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- PDF.js library & Text Layer CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Fixed Top Navigation (Permanent Top Bar) -->
+    <div class="top-nav-fixed">
+      <!-- Header -->
+      <header class="app-header">
+        <div class="header-left">
+          <!-- Sidebar Toggle (Chapters & Bookmarks) -->
+          <button id="btn-toggle-sidebar" class="icon-btn-header" title="Chapters & Bookmarks">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <div class="logo-group">
+            <span class="logo-icon">🎧</span>
+            <h1 class="logo-title">AudioBook</h1>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <!-- Sleep Timer Button -->
+          <button id="btn-sleep-timer" class="icon-btn-header" title="Sleep Timer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span id="badge-timer" class="timer-badge" style="display:none;"></span>
+          </button>
+
+          <!-- Theme Selector -->
+          <div class="theme-dropdown-wrapper">
+            <button id="btn-theme-select" class="icon-btn-header" title="Switch Theme">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="5"></circle>
+                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+              </svg>
+            </button>
+            <div class="theme-dropdown-menu" id="theme-menu" style="display: none;">
+              <button data-theme="dark" class="theme-item active">🌙 Dark</button>
+              <button data-theme="oled" class="theme-item">⬛ OLED Black</button>
+              <button data-theme="sepia" class="theme-item">📜 Sepia Paper</button>
+              <button data-theme="midnight" class="theme-item">🌌 Midnight Blue</button>
+              <button data-theme="light" class="theme-item">☀️ Light</button>
+            </div>
+          </div>
+
+          <!-- Open PDF Button -->
+          <label for="pdf-upload" class="btn btn-primary upload-btn" title="Upload PDF">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <span class="upload-btn-text">Open PDF</span>
+          </label>
+          <input type="file" id="pdf-upload" accept="application/pdf" style="display:none;">
+        </div>
+      </header>
+
+      <!-- Resume Banner (Auto-save) -->
+      <div id="resume-banner" class="resume-banner" style="display: none;">
+        <div class="resume-info">
+          <span class="resume-icon">📖</span>
+          <span id="resume-text">Resume where you left off?</span>
+        </div>
+        <div class="resume-btns">
+          <button id="btn-resume-yes" class="btn-sm btn-accent">Resume</button>
+          <button id="btn-resume-no" class="btn-sm btn-ghost">&times;</button>
+        </div>
+      </div>
+
+      <!-- Book Info & View Controls Bar -->
+      <section class="book-info-bar" id="book-info-bar">
+        <div class="book-details">
+          <h2 id="book-title" class="book-title">No PDF selected</h2>
+          <span id="page-indicator" class="page-indicator">Page 0 of 0</span>
+        </div>
+
+        <div class="header-controls">
+          <!-- View Switcher (Original vs Reader) -->
+          <div class="view-switcher-group">
+            <button id="btn-view-original" class="view-toggle-btn active" title="Original PDF Page View">
+              📄 Original
+            </button>
+            <button id="btn-view-reader" class="view-toggle-btn" title="Reflow Text Reader View">
+              📖 Text
+            </button>
+          </div>
+
+          <!-- Zoom controls for Original view -->
+          <div id="zoom-controls" class="zoom-controls">
+            <button id="btn-zoom-out" class="icon-btn" title="Zoom out">-</button>
+            <button id="btn-zoom-fit" class="icon-btn" title="Fit width">Fit</button>
+            <button id="btn-zoom-in" class="icon-btn" title="Zoom in">+</button>
+          </div>
+
+          <!-- Font sizing for Reader view -->
+          <div id="font-controls" class="font-controls" style="display: none;">
+            <button id="btn-font-dec" class="icon-btn" title="Decrease font size">A-</button>
+            <button id="btn-font-inc" class="icon-btn" title="Increase font size">A+</button>
+          </div>
+
+          <!-- Bookmark Button -->
+          <button id="btn-add-bookmark" class="icon-btn" title="Bookmark current sentence">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+            </svg>
+          </button>
+
+          <!-- Export Audio Button -->
+          <button id="btn-export-audio" class="icon-btn" title="Download current page as MP3">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <!-- Main Content Area -->
+    <main class="content-container" id="content-container">
+      <!-- Empty State -->
+      <div class="empty-state" id="empty-state">
+        <div class="empty-icon">🎧</div>
+        <h3>AudioBook Reader</h3>
+        <p>Listen to your PDF documents with natural speech, live highlighting, sleep timer, chapters, and bookmarks.</p>
+        <label for="pdf-upload" class="btn btn-accent btn-large">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="12" y1="18" x2="12" y2="12"></line>
+            <line x1="9" y1="15" x2="15" y2="15"></line>
+          </svg>
+          Choose PDF File
+        </label>
+      </div>
+
+      <!-- Loading State -->
+      <div class="loading-state" id="loading-state" style="display: none;">
+        <div class="spinner"></div>
+        <p id="loading-text">Rendering original PDF page...</p>
+      </div>
+
+      <!-- 1. Original PDF Canvas + Speech TextLayer -->
+      <div class="original-pdf-wrapper" id="original-pdf-wrapper" style="display: none;">
+        <div class="pdf-page-container" id="pdf-page-container">
+          <canvas id="pdf-canvas"></canvas>
+          <div id="pdf-text-layer" class="textLayer"></div>
+        </div>
+      </div>
+
+      <!-- 2. Reflow Text Reader Area -->
+      <div class="text-display" id="text-display" style="display: none;">
+        <!-- Sentences dynamically injected here in Reader mode -->
+      </div>
+    </main>
+
+    <!-- Navigation Bar (Page jumps) -->
+    <nav class="page-nav-bar" id="page-nav-bar" style="display: none;">
+      <button id="btn-prev-page" class="nav-btn" title="Previous Page">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        <span>Prev</span>
+      </button>
+
+      <div class="page-jump">
+        <span>Page</span>
+        <input type="number" id="input-page-num" min="1" value="1">
+        <span id="label-total-pages">/ 0</span>
+      </div>
+
+      <button id="btn-next-page" class="nav-btn" title="Next Page">
+        <span>Next</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </nav>
+
+    <!-- Audiobook Player Dock (Bottom) -->
+    <footer class="player-dock" id="player-dock">
+      <!-- Scrubbing / Reading Progress Bar -->
+      <div class="progress-bar-container" id="progress-container">
+        <div class="progress-fill" id="progress-fill" style="width: 0%;"></div>
+      </div>
+
+      <!-- Controls Row -->
+      <div class="player-main-controls">
+        <!-- Settings Toggle (Speed, Voice) -->
+        <button id="btn-settings-toggle" class="control-btn icon-only" title="Voice & Speed Settings">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+
+        <!-- Previous Sentence -->
+        <button id="btn-prev-sentence" class="control-btn" title="Previous sentence">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="19 20 9 12 19 4 19 20"></polygon>
+            <line x1="5" y1="19" x2="5" y2="5"></line>
+          </svg>
+        </button>
+
+        <!-- Play / Pause Main Button -->
+        <button id="btn-play-pause" class="control-btn play-circle-btn" title="Play / Pause">
+          <svg id="icon-play" width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          <svg id="icon-pause" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" style="display:none;">
+            <rect x="6" y="4" width="4" height="16"></rect>
+            <rect x="14" y="4" width="4" height="16"></rect>
+          </svg>
+        </button>
+
+        <!-- Next Sentence -->
+        <button id="btn-next-sentence" class="control-btn" title="Next sentence">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 4 15 12 5 20 5 4"></polygon>
+            <line x1="19" y1="5" x2="19" y2="19"></line>
+          </svg>
+        </button>
+
+        <!-- Stop Button -->
+        <button id="btn-stop" class="control-btn icon-only" title="Stop">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="5" y="5" width="14" height="14" rx="2"></rect>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Settings Panel (Drawer/Accordion) -->
+      <div class="settings-drawer" id="settings-drawer" style="display: none;">
+        <div class="drawer-header">
+          <span>Audiobook Settings</span>
+          <button id="btn-close-settings" class="close-btn">&times;</button>
+        </div>
+
+        <div class="setting-item">
+          <label for="select-voice">Narrator Voice:</label>
+          <select id="select-voice" class="custom-select">
+            <option value="">Default System Voice</option>
+          </select>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-label-row">
+            <label for="range-speed">Speech Rate: <span id="label-speed">1.0x</span></label>
+          </div>
+          <div class="speed-presets">
+            <button class="btn-preset-speed" data-speed="0.75">0.75x</button>
+            <button class="btn-preset-speed active" data-speed="1.0">1.0x</button>
+            <button class="btn-preset-speed" data-speed="1.25">1.25x</button>
+            <button class="btn-preset-speed" data-speed="1.5">1.5x</button>
+            <button class="btn-preset-speed" data-speed="2.0">2.0x</button>
+          </div>
+          <input type="range" id="range-speed" min="0.5" max="2.5" step="0.05" value="1.0" class="custom-slider">
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-label-row">
+            <label for="range-pitch">Pitch: <span id="label-pitch">1.0</span></label>
+          </div>
+          <input type="range" id="range-pitch" min="0.5" max="1.5" step="0.1" value="1.0" class="custom-slider">
+        </div>
+
+        <div class="setting-item toggle-item">
+          <label for="toggle-auto-advance">Auto-play next page when page finishes:</label>
+          <input type="checkbox" id="toggle-auto-advance" checked class="custom-toggle">
+        </div>
+      </div>
+    </footer>
+
+    <!-- Chapters & Bookmarks Sidebar Drawer -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop" style="display: none;"></div>
+    <aside class="sidebar-drawer" id="sidebar-drawer">
+      <div class="sidebar-header">
+        <div class="sidebar-tabs">
+          <button id="tab-btn-chapters" class="sidebar-tab active">Chapters</button>
+          <button id="tab-btn-bookmarks" class="sidebar-tab">Bookmarks</button>
+        </div>
+        <button id="btn-close-sidebar" class="close-btn">&times;</button>
+      </div>
+
+      <div class="sidebar-content">
+        <!-- Chapters Tab Pane -->
+        <div id="pane-chapters" class="tab-pane active">
+          <div id="chapters-list" class="chapters-list">
+            <p class="empty-list-notice">No table of contents available in this PDF.</p>
+          </div>
+        </div>
+
+        <!-- Bookmarks Tab Pane -->
+        <div id="pane-bookmarks" class="tab-pane">
+          <div id="bookmarks-list" class="bookmarks-list">
+            <p class="empty-list-notice">No bookmarks yet. Tap the bookmark icon while listening to save a place!</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Sleep Timer Modal Popover -->
+    <div class="modal-backdrop" id="timer-modal-backdrop" style="display: none;">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>🌙 Sleep Timer</h3>
+          <button id="btn-close-timer-modal" class="close-btn">&times;</button>
+        </div>
+        <div class="timer-options">
+          <button class="btn-timer-option" data-mins="0">Off</button>
+          <button class="btn-timer-option" data-mins="5">5 Minutes</button>
+          <button class="btn-timer-option" data-mins="15">15 Minutes</button>
+          <button class="btn-timer-option" data-mins="30">30 Minutes</button>
+          <button class="btn-timer-option" data-mins="45">45 Minutes</button>
+          <button class="btn-timer-option" data-mins="60">1 Hour</button>
+          <button class="btn-timer-option" data-mins="end_page">End of Current Page</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export Audio Modal/Overlay -->
+    <div class="modal-backdrop" id="export-modal-backdrop" style="display: none;">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>💾 Download Audio (MP3)</h3>
+          <button id="btn-close-export-modal" class="close-btn">&times;</button>
+        </div>
+        <div class="export-body">
+          <p id="export-status-text">Synthesizing current page audio into MP3...</p>
+          <div class="spinner" id="export-spinner"></div>
+          <div id="export-actions" style="display: none; margin-top: 15px;">
+            <a id="btn-download-mp3" class="btn btn-accent" download="page_audio.mp3">Download MP3 File</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
