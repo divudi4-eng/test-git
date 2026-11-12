@@ -404,16 +404,32 @@
       availableVoices = window.speechSynthesis.getVoices();
       selectVoice.innerHTML = '<option value="">Default System Voice</option>';
 
+      // Sort voices prioritizing Natural / Google / Enhanced voices
       const sorted = [...availableVoices].sort((a, b) => {
+        const aIsNatural = /google|natural|premium|neural|enhanced/i.test(a.name);
+        const bIsNatural = /google|natural|premium|neural|enhanced/i.test(b.name);
+        if (aIsNatural && !bIsNatural) return -1;
+        if (!aIsNatural && bIsNatural) return 1;
+
         if (a.lang.startsWith('en') && !b.lang.startsWith('en')) return -1;
         if (!a.lang.startsWith('en') && b.lang.startsWith('en')) return 1;
         return a.name.localeCompare(b.name);
       });
 
+      // Auto-select best natural voice if not already saved
+      if (!settings.voiceURI && sorted.length > 0) {
+        const bestVoice = sorted.find(v => v.lang.startsWith('en')) || sorted[0];
+        if (bestVoice) {
+          settings.voiceURI = bestVoice.voiceURI;
+          localStorage.setItem('ab_voiceURI', settings.voiceURI);
+        }
+      }
+
       sorted.forEach((voice) => {
         const option = document.createElement('option');
         option.value = voice.voiceURI;
-        option.textContent = `${voice.name} (${voice.lang})`;
+        const tag = /google|natural|premium|neural|enhanced/i.test(voice.name) ? ' ⭐ (High Quality)' : '';
+        option.textContent = `${voice.name} (${voice.lang})${tag}`;
         if (voice.voiceURI === settings.voiceURI) option.selected = true;
         selectVoice.appendChild(option);
       });
@@ -926,6 +942,68 @@
     });
   }
 
+  // Intelligent Pronunciation Normalizer for Math, Equations, Hyphens, and Symbols
+  function normalizePronunciation(text) {
+    if (!text) return '';
+    let s = text;
+
+    // 1. Dehyphenate broken words across line breaks (e.g. "divi- sion" -> "division")
+    s = s.replace(/(\b\w+)-\s+(\w+\b)/g, '$1$2');
+
+    // 2. Expand common academic abbreviations
+    s = s.replace(/\be\.g\.,?\s*/gi, 'for example, ');
+    s = s.replace(/\bi\.e\.,?\s*/gi, 'that is, ');
+    s = s.replace(/\betc\.?\b/gi, 'et cetera');
+    s = s.replace(/\bFig\.\s*(\d+)/gi, 'Figure $1');
+    s = s.replace(/\bCh\.\s*(\d+)/gi, 'Chapter $1');
+    s = s.replace(/\bEq\.\s*(\d+)/gi, 'Equation $1');
+    s = s.replace(/\bvs\.?\b/gi, 'versus');
+    s = s.replace(/\bDr\.\s+/gi, 'Doctor ');
+    s = s.replace(/\bMr\.\s+/gi, 'Mister ');
+    s = s.replace(/\bMrs\.\s+/gi, 'Missus ');
+    s = s.replace(/\bMs\.\s+/gi, 'Mizz ');
+
+    // 3. Mathematical variables - make standalone 'a' sound like 'ay' instead of 'uh'
+    s = s.replace(/\ba\s*=/g, 'ay equals');
+    s = s.replace(/=\s*a\b/g, '= ay');
+    s = s.replace(/\bfor a\b/gi, 'for ay');
+    s = s.replace(/\bwhere a\b/gi, 'where ay');
+    s = s.replace(/\blet a\b/gi, 'let ay');
+    s = s.replace(/\bthat a\b/gi, 'that ay');
+    s = s.replace(/\ba\s*,\s*b\b/g, 'ay, b');
+    s = s.replace(/\ba\s+and\s+b\b/gi, 'ay and b');
+    s = s.replace(/\ba\s*\+\s*/g, 'ay plus ');
+
+    // 4. Comparison and equation operators
+    s = s.replace(/<=|≤/g, ' is less than or equal to ');
+    s = s.replace(/>=|≥/g, ' is greater than or equal to ');
+    s = s.replace(/!=|≠/g, ' is not equal to ');
+    s = s.replace(/≈/g, ' is approximately equal to ');
+    s = s.replace(/\b(\w+)\s*<\s*(\w+)\b/g, '$1 is less than $2');
+    s = s.replace(/\b(\w+)\s*>\s*(\w+)\b/g, '$1 is greater than $2');
+    s = s.replace(/=/g, ' equals ');
+
+    // 5. Arithmetic operators
+    s = s.replace(/\+/g, ' plus ');
+    s = s.replace(/(\b\w+)\s*-\s*(\b\w+)/g, '$1 minus $2');
+    s = s.replace(/×/g, ' times ');
+    s = s.replace(/÷/g, ' divided by ');
+
+    // 6. Exponents & units
+    s = s.replace(/(\b\w+)²/g, '$1 squared');
+    s = s.replace(/(\b\w+)³/g, '$1 cubed');
+    s = s.replace(/\^2\b/g, ' squared');
+    s = s.replace(/\^3\b/g, ' cubed');
+    s = s.replace(/%/g, ' percent');
+    s = s.replace(/°/g, ' degrees ');
+    s = s.replace(/±/g, ' plus or minus ');
+    s = s.replace(/√(\w+)/g, ' square root of $1 ');
+
+    // Clean whitespace
+    s = s.replace(/\s+/g, ' ').trim();
+    return s;
+  }
+
   // --------------------------------------------------------------------------
   // Playback Engine & Highlighting
   // --------------------------------------------------------------------------
@@ -954,20 +1032,36 @@
     saveCurrentPosition();
 
     const sentenceItem = sentences[idx];
-    const textToSpeak = typeof sentenceItem === 'object' ? sentenceItem.text : sentenceItem;
-    currentUtterance = new SpeechSynthesisUtterance(textToSpeak);
+    const originalText = typeof sentenceItem === 'object' ? sentenceItem.text : sentenceItem;
+    const spokenText = normalizePronunciation(originalText);
+    currentUtterance = new SpeechSynthesisUtterance(spokenText);
 
+    let activeVoice = null;
     if (settings.voiceURI) {
-      const voice = availableVoices.find((v) => v.voiceURI === settings.voiceURI);
-      if (voice) currentUtterance.voice = voice;
+      activeVoice = availableVoices.find((v) => v.voiceURI === settings.voiceURI);
     }
+    if (!activeVoice && availableVoices.length > 0) {
+      activeVoice = availableVoices.find((v) => /google|natural|premium|neural|enhanced/i.test(v.name) && v.lang.startsWith('en')) ||
+                    availableVoices.find((v) => v.lang.startsWith('en')) ||
+                    availableVoices[0];
+    }
+
+    if (activeVoice) {
+      currentUtterance.voice = activeVoice;
+      currentUtterance.lang = activeVoice.lang;
+    } else {
+      currentUtterance.lang = 'en-US';
+    }
+
     currentUtterance.rate = settings.rate;
     currentUtterance.pitch = settings.pitch;
 
-    // Word-by-Word karaoke boundary event
+    // Word-by-Word karaoke boundary event with proportional ratio mapping
     currentUtterance.onboundary = (event) => {
       if (event.name === 'word') {
-        highlightActiveWord(idx, event.charIndex);
+        const ratio = event.charIndex / Math.max(1, spokenText.length);
+        const charInOriginal = Math.min(originalText.length - 1, Math.floor(ratio * originalText.length));
+        highlightActiveWord(idx, charInOriginal);
       }
     };
 
